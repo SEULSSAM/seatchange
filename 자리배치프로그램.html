@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>자리 바꾸기 프로그램</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+        }
+        .desk {
+            transition: all 0.3s ease;
+            transform-style: preserve-3d;
+        }
+        .desk.flipped .desk-front {
+            transform: rotateY(180deg);
+        }
+        .desk.flipped .desk-back {
+            transform: rotateY(0deg);
+        }
+        .desk-front, .desk-back {
+            -webkit-backface-visibility: hidden;
+            backface-visibility: hidden;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .desk-back {
+            transform: rotateY(-180deg);
+        }
+        .desk-placeholder::before {
+            content: "교탁";
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            font-weight: bold;
+            color: #4a5568;
+        }
+        .seat-disabled {
+            opacity: 0.4;
+            background-color: #e2e8f0;
+        }
+
+        #distance-select option:checked {
+            background-color: #3b82f6;
+            color: white;
+        }
+
+        /* Teacher View Styles */
+        #seating-chart-wrapper.teacher-view {
+            flex-direction: column-reverse;
+        }
+        #seating-chart.teacher-view {
+            transform: rotate(180deg);
+        }
+        .desk.teacher-view {
+            transform: rotate(180deg);
+        }
+        /* Group Label in Teacher View */
+        .group-container.teacher-view .group-label {
+            transform: rotate(180deg) translateX(50%);
+            bottom: -0.75rem;
+            top: auto;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8 relative">
+        <button id="guidebook-btn" class="absolute top-4 right-4 md:top-8 md:right-8 bg-white border border-gray-300 text-gray-500 py-2 px-3 rounded-lg hover:bg-gray-100 transition text-sm flex items-center gap-2 z-10">
+            📖 <strong>이용 가이드북</strong>
+        </button>
+
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-700">🏫 자리 바꾸기 프로그램</h1>
+            <p class="text-gray-500 mt-2">간편하고 빠른 자리 배치로 교실 분위기를 새롭게! 교실 속 자리 배치 도우미</p>
+            <p class="text-sm text-gray-400 mt-2">[Made by 슬쌤 / 📧 seulwhite17@gmail.com]</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Left Panel: Settings -->
+            <div class="lg:col-span-1 bg-white p-6 rounded-2xl shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 border-b pb-2">1. 명단 입력</h2>
+                <textarea id="name-list" class="w-full h-40 p-3 border rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="이름을 한 줄에 한 명씩 입력하세요.&#10;예시)&#10;김자두&#10;백레몬&#10;홍석류"></textarea>
+                
+                <div class="mt-2 space-y-2">
+                    <input type="text" id="group-name" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="그룹명 (예: 3-4 (27명))">
+                    <button id="save-roster" class="w-full bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition">현재 명단 저장</button>
+                </div>
+                <div class="mt-4 space-y-2">
+                    <select id="load-roster-select" class="w-full p-2 border bg-white rounded-lg focus:ring-2 focus:ring-blue-500"></select>
+                    <div class="flex space-x-2">
+                        <button id="load-roster" class="w-full bg-gray-500 text-white py-2 rounded-lg hover:bg-gray-600 transition">그룹 불러오기</button>
+                        <button id="delete-roster" class="w-full bg-red-500 text-white py-2 rounded-lg hover:bg-red-600 transition">그룹 삭제</button>
+                    </div>
+                </div>
+
+                <h2 class="text-xl font-semibold mt-6 mb-4 border-b pb-2">2. 책상 배열 설정</h2>
+                <div>
+                    <label for="layout-type" class="block text-sm font-medium">배치 유형</label>
+                    <select id="layout-type" class="w-full mt-1 p-2 border bg-white rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <option value="default">기본</option>
+                        <option value="pairs">짝꿍 (분단형)</option>
+                        <option value="groups">모둠</option>
+                    </select>
+                </div>
+                
+                <!-- 기본, 짝꿍 설정 -->
+                <div id="grid-settings" class="grid grid-cols-2 gap-4 mt-4">
+                    <div>
+                        <label id="rows-label" for="rows" class="block text-sm font-medium">행 (가로)</label>
+                        <input type="number" id="rows" value="5" min="1" max="15" class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label id="cols-label" for="cols" class="block text-sm font-medium">열 (세로)</label>
+                        <input type="number" id="cols" value="6" min="1" max="15" class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+                
+                <!-- 모둠 설정 -->
+                <div id="group-settings" class="grid grid-cols-2 gap-4 mt-4 hidden">
+                    <div>
+                        <label for="group-count" class="block text-sm font-medium">모둠 수</label>
+                        <input type="number" id="group-count" value="6" min="1" max="15" class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label for="group-size" class="block text-sm font-medium">모둠원 수</label>
+                        <input type="number" id="group-size" value="4" min="2" max="8" class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+
+                 <div class="mt-4">
+                    <button id="apply-layout" class="w-full bg-indigo-500 text-white py-2 rounded-lg hover:bg-indigo-600 transition">배열 적용</button>
+                </div>
+            </div>
+
+            <!-- Right Panel: Seating Chart -->
+            <div class="lg:col-span-2 bg-white p-6 rounded-2xl shadow-lg relative flex flex-col min-w-0">
+                 <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4 border-b pb-2 gap-4">
+                    <h2 class="text-xl font-semibold whitespace-nowrap flex-shrink-0">3. 자리 배치 결과 <span id="secret-trigger" title="숨겨진 기능 열기" class="cursor-pointer hover:opacity-75 transition-opacity">😊</span></h2>
+                    <div class="flex flex-wrap gap-2 w-full lg:w-auto">
+                         <button id="public-leader-btn" class="hidden bg-yellow-400 text-yellow-900 py-2 px-4 rounded-lg hover:bg-yellow-500 transition font-bold shadow-sm disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>👑 모둠장 공개 지정</button>
+                         <button id="generate-seats" class="bg-green-500 text-white py-2 px-4 rounded-lg hover:bg-green-600 transition disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>자리 바꾸기!</button>
+                         <button id="clear-seats" class="bg-orange-500 text-white py-2 px-4 rounded-lg hover:bg-orange-600 transition disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>모두 지우기</button>
+                         <button id="download-excel" class="bg-purple-500 text-white py-2 px-4 rounded-lg hover:bg-purple-600 transition disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>엑셀로 다운로드</button>
+                    </div>
+                </div>
+
+                <div class="flex-grow flex flex-row gap-4 min-h-0">
+                    <!-- Secret Panel -->
+                    <div id="secret-panel" class="hidden w-72 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 rounded-lg space-y-6 flex-col overflow-y-auto">
+                         <div>
+                            <h3 class="text-lg font-semibold mb-2">🔐 사전 자리 지정</h3>
+                            <p class="text-sm">아래 목록에서 학생을 선택한 후, 오른쪽 자리표에서 원하는 자리를 클릭하여 고정하세요.</p>
+                            <select id="pre-assign-select" class="w-full mt-2 p-2 border rounded-lg bg-white"></select>
+                            <button id="clear-pre-assign" class="w-full mt-2 bg-yellow-500 text-white py-2 rounded-lg hover:bg-yellow-600 transition text-sm">지정 모두 해제</button>
+                         </div>
+
+                         <div class="border-t border-yellow-400"></div>
+                         <div class="flex-grow flex flex-col min-h-0">
+                            <h3 id="distance-title" class="text-lg font-semibold mb-2">🧍↔️ 자리 띄우기</h3>
+                            <p id="distance-desc" class="text-sm">서로 떨어져야 할 학생들을 선택 후 '조건 추가'를 누르세요. (예: A, B 선택 후 추가)</p>
+                            <select id="distance-select" multiple class="w-full mt-2 flex-grow p-2 border rounded-lg bg-white min-h-[100px]"></select>
+                            <button id="add-distance-rule" class="w-full mt-2 bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition text-sm font-bold shadow-sm">조건 추가</button>
+                            <div id="distance-rules-list" class="mt-3 space-y-2 max-h-40 overflow-y-auto"></div>
+                         </div>
+                    </div>
+                    
+                    <div class="flex-1 flex flex-col min-w-0">
+                        <div id="seating-chart-wrapper" class="flex flex-col flex-grow min-h-0">
+                            <div class="bg-gray-200 p-2 sm:p-4 rounded-lg text-center font-bold text-gray-600 mb-4 desk-placeholder"></div>
+                            <div id="seating-chart" class="select-none">
+                                <!-- Desks will be generated here -->
+                            </div>
+                        </div>
+
+                        <div class="mt-4 text-center">
+                            <button id="toggle-view-btn" class="bg-gray-700 text-white py-2 px-4 rounded-lg hover:bg-gray-800 transition">
+                                교사 기준 보기
+                            </button>
+                            <p class="text-sm text-gray-500 mt-2"><span class="font-bold">사용법:</span> 배열 적용 후, 필요 없는 자리는 클릭하여 비활성화할 수 있습니다.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Modal -->
+    <div id="custom-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 transform transition-all scale-95 opacity-0" id="modal-content">
+            <div id="modal-message" class="text-gray-800"></div>
+            <div id="modal-buttons" class="mt-6 flex justify-end space-x-3">
+                <!-- Buttons will be injected here -->
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const nameListEl = document.getElementById('name-list');
+            const groupNameEl = document.getElementById('group-name');
+            const saveRosterBtn = document.getElementById('save-roster');
+            const loadRosterSelectEl = document.getElementById('load-roster-select');
+            const loadRosterBtn = document.getElementById('load-roster');
+            const deleteRosterBtn = document.getElementById('delete-roster');
+
+            const layoutTypeEl = document.getElementById('layout-type');
+            const gridSettingsEl = document.getElementById('grid-settings');
+            const groupSettingsEl = document.getElementById('group-settings');
+            const rowsEl = document.getElementById('rows');
+            const colsEl = document.getElementById('cols');
+            const rowsLabel = document.getElementById('rows-label');
+            const colsLabel = document.getElementById('cols-label');
+            const groupCountEl = document.getElementById('group-count');
+            const groupSizeEl = document.getElementById('group-size');
+
+            const applyLayoutBtn = document.getElementById('apply-layout');
+            const publicLeaderBtn = document.getElementById('public-leader-btn');
+            const seatingChartEl = document.getElementById('seating-chart');
+            const generateSeatsBtn = document.getElementById('generate-seats');
+            const downloadExcelBtn = document.getElementById('download-excel');
+            const clearSeatsBtn = document.getElementById('clear-seats');
+            
+            const secretTrigger = document.getElementById('secret-trigger');
+            const secretPanel = document.getElementById('secret-panel');
+            const preAssignSelect = document.getElementById('pre-assign-select');
+            const clearPreAssignBtn = document.getElementById('clear-pre-assign');
+            const distanceTitle = document.getElementById('distance-title');
+            const distanceDesc = document.getElementById('distance-desc');
+            const distanceSelect = document.getElementById('distance-select');
+            const addDistanceRuleBtn = document.getElementById('add-distance-rule');
+            const distanceRulesList = document.getElementById('distance-rules-list');
+
+            const modalEl = document.getElementById('custom-modal');
+            const modalContentEl = document.getElementById('modal-content');
+            const modalMessageEl = document.getElementById('modal-message');
+            const modalButtonsEl = document.getElementById('modal-buttons');
+
+            const seatingChartWrapper = document.getElementById('seating-chart-wrapper');
+            const toggleViewBtn = document.getElementById('toggle-view-btn');
+            const guidebookBtn = document.getElementById('guidebook-btn');
+
+            const ROSTERS_KEY = 'seatingChartRosters';
+            let students = [];
+            let preAssignedSeats = {}; // { seatIndex: studentName }
+            let groupLeaders = {}; // { groupIndex: studentName }
+            let disabledSeats = [];
+            let distanceRules = []; // Array of arrays: e.g. [['A', 'B'], ['C', 'D']]
+            let isTeacherView = false;
+
+            // --- Roster Storage Functions ---
+            function getRosters() {
+                try {
+                    const rosters = localStorage.getItem(ROSTERS_KEY);
+                    return rosters ? JSON.parse(rosters) : {};
+                } catch (e) {
+                    console.error("Error reading rosters from localStorage", e);
+                    return {};
+                }
+            }
+
+            function saveRosters(rosters) {
+                try {
+                    localStorage.setItem(ROSTERS_KEY, JSON.stringify(rosters));
+                } catch (e) {
+                    console.error("Error saving rosters to localStorage", e);
+                    showAlert("오류: 명단을 저장하지 못했습니다. 브라우저 저장 공간이 부족할 수 있습니다.");
+                }
+            }
+
+            // --- Custom Modal Functions ---
+            function showAlert(message) {
+                modalMessageEl.innerHTML = `<p class="text-lg">${message}</p>`;
+                modalButtonsEl.innerHTML = `<button id="modal-ok-btn" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">확인</button>`;
+                modalEl.classList.remove('hidden');
+                setTimeout(() => modalContentEl.classList.remove('scale-95', 'opacity-0'), 10);
+                
+                const okBtn = document.getElementById('modal-ok-btn');
+                okBtn.focus();
+                okBtn.addEventListener('click', () => {
+                     modalContentEl.classList.add('scale-95', 'opacity-0');
+                     setTimeout(() => modalEl.classList.add('hidden'), 200);
+                }, { once: true });
+            }
+            
+            function showGuidebook(content) {
+                modalMessageEl.innerHTML = content;
+                modalButtonsEl.innerHTML = `<button id="modal-ok-btn" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">닫기</button>`;
+                modalEl.classList.remove('hidden');
+                setTimeout(() => modalContentEl.classList.remove('scale-95', 'opacity-0'), 10);
+                
+                const okBtn = document.getElementById('modal-ok-btn');
+                okBtn.focus();
+                okBtn.addEventListener('click', () => {
+                     modalContentEl.classList.add('scale-95', 'opacity-0');
+                     setTimeout(() => modalEl.classList.add('hidden'), 200);
+                }, { once: true });
+            }
+
+            function showConfirm(message, callback, options = {}) {
+                const { confirmText = '확인', cancelText = '취소', confirmColor = 'red', extraButton = null } = options;
+                modalMessageEl.innerHTML = `<p class="text-lg">${message}</p>`;
+                
+                let confirmClasses = 'bg-red-500 hover:bg-red-600 focus:ring-red-500';
+                if (confirmColor === 'orange') {
+                    confirmClasses = 'bg-orange-500 hover:bg-orange-600 focus:ring-orange-500';
+                }
+
+                let extraBtnHtml = '';
+                if (extraButton) {
+                    extraBtnHtml = `<button id="modal-extra-btn" class="${extraButton.classes} px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 transition">${extraButton.text}</button>`;
+                }
+
+                modalButtonsEl.innerHTML = `
+                    <button id="modal-cancel-btn" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400">${cancelText}</button>
+                    ${extraBtnHtml}
+                    <button id="modal-confirm-btn" class="text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${confirmClasses}">${confirmText}</button>
+                `;
+                modalEl.classList.remove('hidden');
+                setTimeout(() => modalContentEl.classList.remove('scale-95', 'opacity-0'), 10);
+
+                const confirmBtn = document.getElementById('modal-confirm-btn');
+                const cancelBtn = document.getElementById('modal-cancel-btn');
+                const extraBtn = document.getElementById('modal-extra-btn');
+                confirmBtn.focus();
+
+                const close = (value) => {
+                    modalContentEl.classList.add('scale-95', 'opacity-0');
+                    setTimeout(() => {
+                        modalEl.classList.add('hidden');
+                        if (callback) callback(value);
+                    }, 200);
+                };
+
+                confirmBtn.addEventListener('click', () => close(true), { once: true });
+                cancelBtn.addEventListener('click', () => close(false), { once: true });
+                if (extraBtn) {
+                    extraBtn.addEventListener('click', () => close('extra'), { once: true });
+                }
+            }
+
+            // --- Roster Management ---
+            function populateLoadDropdown() {
+                const rosters = getRosters();
+                const groupNames = Object.keys(rosters);
+                loadRosterSelectEl.innerHTML = '';
+                if (groupNames.length === 0) {
+                    const option = document.createElement('option');
+                    option.textContent = '저장된 그룹이 없습니다.';
+                    loadRosterSelectEl.appendChild(option);
+                    loadRosterBtn.disabled = true;
+                    deleteRosterBtn.disabled = true;
+                } else {
+                    groupNames.sort().forEach(name => {
+                        const option = document.createElement('option');
+                        option.value = name;
+                        option.textContent = name;
+                        loadRosterSelectEl.appendChild(option);
+                    });
+                    loadRosterBtn.disabled = false;
+                    deleteRosterBtn.disabled = false;
+                }
+            }
+
+            saveRosterBtn.addEventListener('click', () => {
+                const groupName = groupNameEl.value.trim();
+                if (!groupName) {
+                    showAlert('저장할 그룹명을 입력해주세요.');
+                    return;
+                }
+                const rosters = getRosters();
+                rosters[groupName] = nameListEl.value;
+                saveRosters(rosters);
+                showAlert(`'${groupName}' 그룹이 저장되었습니다.`);
+                populateLoadDropdown();
+            });
+
+            loadRosterBtn.addEventListener('click', () => {
+                const selectedGroup = loadRosterSelectEl.value;
+                const rosters = getRosters();
+                if (rosters[selectedGroup]) {
+                    nameListEl.value = rosters[selectedGroup];
+                    groupNameEl.value = selectedGroup;
+                    showAlert(`'${selectedGroup}' 그룹 명단을 불러왔습니다.`);
+                    updateStudentList();
+                } else {
+                    showAlert('선택한 그룹을 찾을 수 없거나, 저장된 그룹이 없습니다.');
+                }
+            });
+
+            deleteRosterBtn.addEventListener('click', () => {
+                const selectedGroup = loadRosterSelectEl.value;
+                const rosters = getRosters();
+                if (!rosters[selectedGroup]) {
+                    showAlert('삭제할 그룹이 없습니다.');
+                    return;
+                }
+                showConfirm(`'${selectedGroup}' 그룹을 정말 삭제하시겠습니까?`, (confirmed) => {
+                    if (confirmed) {
+                        delete rosters[selectedGroup];
+                        saveRosters(rosters);
+                        showAlert(`'${selectedGroup}' 그룹이 삭제되었습니다.`);
+                        populateLoadDropdown();
+                    }
+                }, {confirmText: '삭제'});
+            });
+            
+            nameListEl.addEventListener('input', updateStudentList);
+
+            function updateStudentList() {
+                students = nameListEl.value.trim().split('\n').filter(name => name.trim() !== '');
+                updateSecretPanelSelects();
+                const totalDesks = seatingChartEl.querySelectorAll('.desk').length;
+                generateSeatsBtn.disabled = !(students.length > 0 && totalDesks > 0);
+                publicLeaderBtn.disabled = !(students.length > 0 && totalDesks > 0);
+            }
+            
+            // --- Layout Management ---
+            layoutTypeEl.addEventListener('change', updateLayoutLabels);
+
+            function updateLayoutLabels() {
+                const layoutType = layoutTypeEl.value;
+                if (layoutType === 'groups') {
+                    gridSettingsEl.classList.add('hidden');
+                    groupSettingsEl.classList.remove('hidden');
+                    publicLeaderBtn.classList.remove('hidden');
+                    distanceTitle.textContent = '🧍↔️ 모둠 떨어뜨리기';
+                    distanceDesc.textContent = '같은 모둠에 배정되면 안 되는 학생들을 2명 이상 선택 후 추가하세요.';
+                } else {
+                    gridSettingsEl.classList.remove('hidden');
+                    groupSettingsEl.classList.add('hidden');
+                    publicLeaderBtn.classList.add('hidden');
+                    distanceTitle.textContent = '🧍↔️ 자리 띄우기';
+                    distanceDesc.textContent = '서로 떨어져야 할 학생들을 2명 이상 선택 후 추가하세요.';
+                    
+                    if (layoutType === 'pairs') {
+                        rowsLabel.textContent = '분단';
+                        colsLabel.textContent = '행';
+                        rowsEl.value = 3;
+                        colsEl.value = 5;
+                    } else {
+                        rowsLabel.textContent = '행 (가로)';
+                        colsLabel.textContent = '열 (세로)';
+                        rowsEl.value = 5;
+                        colsEl.value = 6;
+                    }
+                }
+            }
+
+            applyLayoutBtn.addEventListener('click', createLayout);
+
+            function createLayout() {
+                const layoutType = layoutTypeEl.value;
+                seatingChartEl.innerHTML = '';
+                seatingChartEl.removeAttribute('style');
+                seatingChartEl.className = 'select-none';
+
+                disabledSeats = [];
+                preAssignedSeats = {};
+                let deskIndex = 0;
+
+                if (layoutType === 'pairs') {
+                    const sections = parseInt(rowsEl.value);
+                    seatingChartEl.classList.add('grid', 'gap-x-4', 'sm:gap-x-8');
+                    seatingChartEl.style.gridTemplateColumns = `repeat(${sections}, minmax(0, 1fr))`;
+                    
+                    const rowsPerSection = parseInt(colsEl.value);
+                    for (let s = 0; s < sections; s++) {
+                        const sectionDiv = document.createElement('div');
+                        sectionDiv.className = 'grid grid-cols-2 gap-2';
+                        for (let r = 0; r < rowsPerSection; r++) {
+                            for (let p = 0; p < 2; p++) {
+                                const desk = createDeskElement(deskIndex, `${deskIndex + 1}`);
+                                sectionDiv.appendChild(desk);
+                                deskIndex++;
+                            }
+                        }
+                        seatingChartEl.appendChild(sectionDiv);
+                    }
+                } else if (layoutType === 'groups') {
+                    const numGroups = parseInt(groupCountEl.value);
+                    const groupSize = parseInt(groupSizeEl.value);
+
+                    seatingChartEl.classList.add('grid', 'gap-4', 'sm:gap-6');
+                    
+                    // 모둠 수에 따라 화면 크기별 열 개수 동적 조정 (반응형으로 이름 칸 확보)
+                    if (numGroups <= 2) {
+                        seatingChartEl.classList.add('grid-cols-1', 'sm:grid-cols-2');
+                    } else if (numGroups <= 4) {
+                        seatingChartEl.classList.add('grid-cols-2');
+                    } else if (numGroups <= 9) {
+                        seatingChartEl.classList.add('grid-cols-2', 'lg:grid-cols-3');
+                    } else {
+                        seatingChartEl.classList.add('grid-cols-2', 'md:grid-cols-3', 'xl:grid-cols-4');
+                    }
+
+                    for (let g = 0; g < numGroups; g++) {
+                        const groupDiv = document.createElement('div');
+                        groupDiv.className = 'bg-blue-50 p-3 rounded-xl border-2 border-blue-200 flex flex-col items-center';
+                        
+                        const groupTitle = document.createElement('div');
+                        groupTitle.className = 'group-title font-bold text-blue-800 mb-2 w-full text-center transition-transform duration-300';
+                        groupTitle.textContent = `${g + 1}모둠`;
+                        groupDiv.appendChild(groupTitle);
+
+                        const desksDiv = document.createElement('div');
+                        desksDiv.className = 'grid grid-cols-2 gap-2 w-full'; // 모둠 내부는 2열 마주보는 형태
+                        
+                        for (let i = 0; i < groupSize; i++) {
+                            const desk = createDeskElement(deskIndex, `${deskIndex + 1}`);
+                            desk.classList.add('bg-white'); // 모둠 배경 안에서 책상이 돋보이게 흰색 추가
+                            desk.dataset.group = g;
+                            desk.dataset.groupPos = i;
+                            desksDiv.appendChild(desk);
+                            deskIndex++;
+                        }
+                        groupDiv.appendChild(desksDiv);
+                        seatingChartEl.appendChild(groupDiv);
+                    }
+                    renderPublicLeaders();
+                } else {
+                    seatingChartEl.classList.add('grid', 'gap-2');
+                    const rows = parseInt(rowsEl.value);
+                    const cols = parseInt(colsEl.value);
+                    seatingChartEl.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+                    for (let i = 0; i < rows * cols; i++) {
+                        const desk = createDeskElement(i, `${i + 1}`);
+                        seatingChartEl.appendChild(desk);
+                    }
+                }
+                updateStudentList();
+                downloadExcelBtn.disabled = true;
+                clearSeatsBtn.disabled = true;
+                applyCurrentView();
+            }
+            
+            function createDeskElement(index, label) {
+                const desk = document.createElement('div');
+                desk.dataset.index = index;
+                desk.dataset.originalLabel = label;
+                // aspect-video 대신 충분한 최소 높이를 주어 텍스트 찌그러짐 방지
+                desk.className = 'desk relative h-16 sm:h-20 lg:h-24 border-2 border-gray-300 rounded-lg p-1 cursor-pointer bg-white w-full shadow-sm';
+                const deskFront = document.createElement('div');
+                deskFront.className = 'desk-front text-xs sm:text-sm font-medium text-gray-500 text-center break-keep overflow-hidden leading-tight px-1';
+                deskFront.textContent = label;
+                const deskBack = document.createElement('div');
+                deskBack.className = 'desk-back text-sm sm:text-base lg:text-lg font-bold text-center break-keep leading-tight overflow-hidden px-1 flex items-center justify-center';
+                desk.appendChild(deskFront);
+                desk.appendChild(deskBack);
+                desk.addEventListener('click', () => handleDeskClick(index));
+                return desk;
+            }
+
+            function handleDeskClick(index) {
+                const desk = seatingChartEl.querySelector(`[data-index='${index}']`);
+                if (!desk) return;
+                if (secretPanel.classList.contains('hidden')) {
+                    desk.classList.toggle('seat-disabled');
+                    if (disabledSeats.includes(index)) {
+                        disabledSeats = disabledSeats.filter(i => i !== index);
+                    } else {
+                        disabledSeats.push(index);
+                    }
+                } else {
+                    const selectedStudent = preAssignSelect.value;
+                    if (!selectedStudent) {
+                        showAlert('먼저 지정할 학생을 선택하세요.');
+                        return;
+                    }
+                    // 이미 다른 곳에 지정되었는지 확인 후 제거
+                    for (const seatIdx in preAssignedSeats) {
+                        if (preAssignedSeats[seatIdx] === selectedStudent) {
+                            delete preAssignedSeats[seatIdx];
+                        }
+                    }
+                    // 현재 선택한 자리가 이미 지정되었는지 확인 후 덮어쓰기
+                    if (preAssignedSeats[index]) {
+                        delete preAssignedSeats[index];
+                    }
+                    preAssignedSeats[index] = selectedStudent;
+                    
+                    let seatLabel = desk.querySelector('.desk-front').textContent;
+                    if (seatLabel === '👑') seatLabel = '모둠장';
+                    showAlert(`${selectedStudent} 학생이 ${seatLabel} 자리에 비밀리에 지정되었습니다.`);
+                }
+            }
+            
+            // --- Secret Panel & Group Leaders ---
+            secretTrigger.addEventListener('click', () => {
+                secretPanel.classList.toggle('hidden');
+                secretPanel.classList.toggle('flex');
+            });
+            
+            function updateSecretPanelSelects() {
+                // 사전 지정, 거리두기 목록 업데이트
+                const currentPreAssign = preAssignSelect.value;
+                const currentDistances = [...distanceSelect.selectedOptions].map(o => o.value);
+                
+                preAssignSelect.innerHTML = '<option value="">-- 학생 선택 --</option>';
+                distanceSelect.innerHTML = '';
+                
+                students.forEach(student => {
+                    const preAssignOption = document.createElement('option');
+                    preAssignOption.value = student;
+                    preAssignOption.textContent = student;
+                    if(student === currentPreAssign) preAssignOption.selected = true;
+                    preAssignSelect.appendChild(preAssignOption);
+                    
+                    const distanceOption = document.createElement('option');
+                    distanceOption.value = student;
+                    distanceOption.textContent = student;
+                    if(currentDistances.includes(student)) distanceOption.selected = true;
+                    distanceSelect.appendChild(distanceOption);
+                });
+            }
+
+            function renderDistanceRules() {
+                distanceRulesList.innerHTML = '';
+                distanceRules.forEach((rule, index) => {
+                    const ruleDiv = document.createElement('div');
+                    ruleDiv.className = 'flex justify-between items-center bg-white p-2 rounded border text-sm shadow-sm';
+                    ruleDiv.innerHTML = `
+                        <span class="truncate pr-2 font-medium text-gray-700">${rule.join(' ↔ ')}</span>
+                        <button class="text-red-500 hover:text-red-700 font-bold px-2 delete-rule-btn" data-index="${index}">X</button>
+                    `;
+                    distanceRulesList.appendChild(ruleDiv);
+                });
+
+                document.querySelectorAll('.delete-rule-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const index = e.target.dataset.index;
+                        distanceRules.splice(index, 1);
+                        renderDistanceRules();
+                    });
+                });
+            }
+
+            addDistanceRuleBtn.addEventListener('click', () => {
+                const selected = [...distanceSelect.selectedOptions].map(opt => opt.value);
+                if (selected.length < 2) {
+                    showAlert('떨어뜨릴 학생을 2명 이상 선택해주세요.');
+                    return;
+                }
+                distanceRules.push(selected);
+                [...distanceSelect.options].forEach(opt => opt.selected = false);
+                renderDistanceRules();
+            });
+
+            clearPreAssignBtn.addEventListener('click', () => {
+                preAssignedSeats = {};
+                showAlert('사전 지정된 모든 자리가 해제되었습니다.');
+            });
+
+            // --- Public Group Leader Modal ---
+            publicLeaderBtn.addEventListener('click', () => {
+                const numGroups = parseInt(groupCountEl.value);
+                let modalHtml = `<h3 class="text-2xl font-bold mb-2 text-center text-yellow-600 flex items-center justify-center gap-2"><span class="text-3xl">👑</span> 모둠장 공개 지정</h3>`;
+                modalHtml += `<p class="text-gray-600 mb-6 text-center text-sm">학생들과 함께 각 모둠의 리더를 정해보세요!</p>`;
+                modalHtml += `<div class="grid grid-cols-2 sm:grid-cols-3 gap-4 max-h-[60vh] overflow-y-auto p-2">`;
+                
+                for (let i = 0; i < numGroups; i++) {
+                    modalHtml += `
+                    <div class="flex flex-col bg-yellow-50 p-4 rounded-xl border-2 border-yellow-200 shadow-sm text-center transition hover:shadow-md">
+                        <label class="font-bold text-yellow-800 mb-2 text-lg">${i + 1}모둠</label>
+                        <select id="public-leader-select-${i}" class="p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 bg-white shadow-inner text-center font-medium">
+                            <option value="">-- 선택 안함 --</option>
+                            ${students.map(s => `<option value="${s}" ${groupLeaders[i] === s ? 'selected' : ''}>${s}</option>`).join('')}
+                        </select>
+                    </div>`;
+                }
+                modalHtml += `</div>`;
+                
+                modalMessageEl.innerHTML = modalHtml;
+                modalButtonsEl.innerHTML = `
+                    <button id="modal-cancel-btn" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 focus:outline-none font-medium transition">취소</button>
+                    <button id="modal-save-btn" class="bg-yellow-500 text-white px-6 py-2 rounded-lg hover:bg-yellow-600 focus:outline-none font-bold transition shadow-md">저장 및 적용</button>
+                `;
+                
+                // 모달을 더 넓게 설정 (3열 보기를 위해)
+                modalContentEl.classList.remove('max-w-md');
+                modalContentEl.classList.add('max-w-3xl');
+                modalEl.classList.remove('hidden');
+                
+                setTimeout(() => modalContentEl.classList.remove('scale-95', 'opacity-0'), 10);
+                
+                const close = () => {
+                    modalContentEl.classList.add('scale-95', 'opacity-0');
+                    setTimeout(() => {
+                        modalEl.classList.add('hidden');
+                        modalContentEl.classList.remove('max-w-3xl');
+                        modalContentEl.classList.add('max-w-md'); // 기본 크기로 원복
+                    }, 200);
+                };
+
+                document.getElementById('modal-cancel-btn').addEventListener('click', close, { once: true });
+                document.getElementById('modal-save-btn').addEventListener('click', () => {
+                    for (let i = 0; i < numGroups; i++) {
+                        const selectEl = document.getElementById(`public-leader-select-${i}`);
+                        if (selectEl.value) {
+                            groupLeaders[i] = selectEl.value;
+                        } else {
+                            delete groupLeaders[i];
+                        }
+                    }
+                    renderPublicLeaders(); // 자리표 화면에 모둠장 즉시 반영
+                    close();
+                }, { once: true });
+            });
+
+            function renderPublicLeaders() {
+                const layoutType = layoutTypeEl.value;
+                if (layoutType !== 'groups') return;
+                
+                const desks = Array.from(seatingChartEl.querySelectorAll('.desk'));
+                desks.forEach(desk => {
+                    if (desk.dataset.groupPos === "0") {
+                        const groupIdx = desk.dataset.group;
+                        const front = desk.querySelector('.desk-front');
+                        
+                        if (groupLeaders[groupIdx]) {
+                            front.innerHTML = `<div class="flex flex-col items-center justify-center w-full h-full bg-yellow-100 rounded-lg border-2 border-yellow-300 shadow-inner overflow-hidden p-1"><span class="text-yellow-600 text-sm sm:text-base lg:text-lg leading-none mb-0.5">👑</span><span class="text-xs sm:text-sm lg:text-base font-bold text-yellow-800 break-keep leading-tight text-center w-full">${groupLeaders[groupIdx]}</span></div>`;
+                        } else {
+                            front.innerHTML = '';
+                            front.textContent = desk.dataset.originalLabel;
+                        }
+                    }
+                });
+            }
+
+            // --- Seat Generation & Clearing ---
+
+            function getSeatCoordinates(index) {
+                const layoutType = layoutTypeEl.value;
+                if (layoutType === 'pairs') {
+                    const rowsPerSection = parseInt(colsEl.value);
+                    const desksPerSection = rowsPerSection * 2;
+                    const section = Math.floor(index / desksPerSection);
+                    const indexInSection = index % desksPerSection;
+                    const row = Math.floor(indexInSection / 2);
+                    const col = (section * 2) + (indexInSection % 2);
+                    return { row, col };
+                } else if (layoutType === 'groups') {
+                    // 모둠 배치의 경우 단순 거리두기 적용이 까다로우므로 모둠 인덱스를 좌표처럼 활용
+                    const desk = seatingChartEl.querySelector(`[data-index='${index}']`);
+                    if(!desk) return {row: 0, col: 0};
+                    const group = parseInt(desk.dataset.group);
+                    const pos = parseInt(desk.dataset.groupPos);
+                    // 같은 모둠 내면 매우 가깝다고 판단
+                    return { row: group, col: group, isGroup: true };
+                } else {
+                    const cols = parseInt(colsEl.value);
+                    const row = Math.floor(index / cols);
+                    const col = index % cols;
+                    return { row, col };
+                }
+            }
+
+            function isTooClose(index1, index2) {
+                const layoutType = layoutTypeEl.value;
+                if (layoutType === 'groups') {
+                    const groupSize = parseInt(groupSizeEl.value);
+                    // 같은 모둠에 속하는지 검사
+                    return Math.floor(index1 / groupSize) === Math.floor(index2 / groupSize);
+                }
+
+                const pos1 = getSeatCoordinates(index1);
+                const pos2 = getSeatCoordinates(index2);
+
+                if (Math.abs(pos1.row - pos2.row) <= 1 && Math.abs(pos1.col - pos2.col) <= 1) {
+                    return true;
+                }
+                if (pos1.row === pos2.row && Math.abs(pos1.col - pos2.col) <= 2) {
+                    return true;
+                }
+                if (pos1.col === pos2.col && Math.abs(pos1.row - pos2.row) <= 2) {
+                    return true;
+                }
+                return false;
+            }
+            
+            generateSeatsBtn.addEventListener('click', () => {
+                const layoutType = layoutTypeEl.value;
+                let finalAssignments = { ...preAssignedSeats };
+                
+                // 1. 모둠장 우선 배정 로직 추가
+                if (layoutType === 'groups') {
+                    const desks = Array.from(seatingChartEl.querySelectorAll('.desk'));
+                    for (const [groupIdx, studentName] of Object.entries(groupLeaders)) {
+                        if (studentName) {
+                            // 모둠의 첫 번째 자리(groupPos="0")를 찾음
+                            const leaderDesk = desks.find(d => d.dataset.group === groupIdx && d.dataset.groupPos === "0");
+                            if (leaderDesk) {
+                                const idx = parseInt(leaderDesk.dataset.index);
+                                // 사전 지정과 충돌 시 모둠장 지정이 우선됨
+                                finalAssignments[idx] = studentName;
+                            }
+                        }
+                    }
+                }
+
+                const preAssignedStudents = Object.values(finalAssignments);
+                
+                // 거리두기 규칙에 포함된 고유 학생 목록 (사전 배정된 학생 제외)
+                const distancedStudents = [...new Set(distanceRules.flat())].filter(s => !preAssignedStudents.includes(s));
+                
+                let regularStudents = students.filter(s => !preAssignedStudents.includes(s) && !distancedStudents.includes(s));
+                
+                let availableDesks = [...seatingChartEl.querySelectorAll('.desk')]
+                    .map(desk => parseInt(desk.dataset.index))
+                    .filter(index => !disabledSeats.includes(index) && !finalAssignments.hasOwnProperty(index));
+                
+                // 2. Place distanced students
+                let placedDistanced = {}; // { studentName: deskIndex }
+                let unplacedDistanced = [];
+
+                if(distancedStudents.length > 0) {
+                    let shuffledAvailable = [...availableDesks].sort(() => 0.5 - Math.random());
+                    
+                    distancedStudents.forEach(student => {
+                        let placed = false;
+                        for (let i = 0; i < shuffledAvailable.length; i++) {
+                            const deskIndex = shuffledAvailable[i];
+                            let conflict = false;
+                            
+                            // 해당 학생이 속한 모든 거리두기 규칙을 검사
+                            for (const rule of distanceRules) {
+                                if (rule.includes(student)) {
+                                    for (const otherStudent of rule) {
+                                        if (otherStudent !== student && placedDistanced[otherStudent] !== undefined) {
+                                            if (isTooClose(deskIndex, placedDistanced[otherStudent])) {
+                                                conflict = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                if (conflict) break;
+                            }
+                            
+                            if (!conflict) {
+                                finalAssignments[deskIndex] = student;
+                                placedDistanced[student] = deskIndex;
+                                shuffledAvailable.splice(i, 1); // Remove from available desks
+                                placed = true;
+                                break;
+                            }
+                        }
+                        if (!placed) {
+                            unplacedDistanced.push(student);
+                        }
+                    });
+                     availableDesks = shuffledAvailable; // Update available desks list
+                }
+                
+                // 자리 띄우기에 실패한 학생은 일반 학생 그룹에 포함
+                regularStudents.push(...unplacedDistanced);
+
+                // 3. Place regular students (Shuffle)
+                for (let i = regularStudents.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [regularStudents[i], regularStudents[j]] = [regularStudents[j], regularStudents[i]];
+                }
+                
+                availableDesks.forEach((deskIndex, i) => {
+                    if (regularStudents[i]) {
+                        finalAssignments[deskIndex] = regularStudents[i];
+                    }
+                });
+
+                // 4. Render results
+                const allDesks = [...seatingChartEl.querySelectorAll('.desk')];
+                allDesks.forEach(desk => {
+                    const index = parseInt(desk.dataset.index);
+                    const studentName = finalAssignments[index] || '';
+                    const deskBack = desk.querySelector('.desk-back');
+                    
+                    if (desk.classList.contains('flipped') && !studentName) desk.classList.remove('flipped');
+
+                    let isLeader = false;
+                    if (layoutType === 'groups' && studentName) {
+                        isLeader = Object.values(groupLeaders).includes(studentName);
+                    }
+
+                    const currentText = deskBack.dataset.student || deskBack.textContent;
+                    if(currentText !== studentName || isLeader) {
+                        deskBack.dataset.student = studentName;
+                        
+                        // 자리뽑기 후 뒷면에도 왕관이 유지되도록 UI 삽입
+                        if (isLeader) {
+                            deskBack.innerHTML = `<div class="flex flex-col items-center justify-center w-full h-full bg-yellow-50 rounded-lg p-1"><span class="text-yellow-600 text-sm sm:text-base lg:text-lg leading-none mb-0.5">👑</span><span class="text-xs sm:text-sm lg:text-base font-bold break-keep leading-tight text-center w-full">${studentName}</span></div>`;
+                        } else {
+                            deskBack.innerHTML = '';
+                            deskBack.textContent = studentName;
+                        }
+
+                        if(studentName && !desk.classList.contains('flipped')) {
+                             setTimeout(() => desk.classList.add('flipped'), index * 50);
+                        }
+                    }
+                });
+                
+                downloadExcelBtn.disabled = false;
+                clearSeatsBtn.disabled = false;
+            });
+            
+            clearSeatsBtn.addEventListener('click', () => {
+                showConfirm('초기화하시겠습니까?', (result) => {
+                    if (result === false) return; // 취소 버튼을 누른 경우 아무 작업도 하지 않음
+
+                    if (result === true) {
+                        // '모두 지우기'를 누른 경우: 백엔드 상태(모둠장, 사전지정, 거리두기)까지 전부 삭제
+                        groupLeaders = {};
+                        preAssignedSeats = {};
+                        distanceRules = [];
+                        
+                        // 비밀 설정 메뉴 UI 초기화
+                        if(preAssignSelect) preAssignSelect.value = '';
+                        [...distanceSelect.options].forEach(opt => opt.selected = false);
+                        renderDistanceRules();
+                        
+                        // 앞면(왕관) 렌더링 초기화
+                        renderPublicLeaders();
+                    }
+
+                    // 공통: 현재 배치된 결과 지우고 카드를 앞면으로 돌리기
+                    // ('현재 자리만'을 누른 경우에는 이 부분만 실행되어 데이터는 남고 시각적으로만 초기화됨)
+                    const allDesks = [...seatingChartEl.querySelectorAll('.desk')];
+                    allDesks.forEach(desk => {
+                        // 뒷면(결과) 초기화
+                        const deskBack = desk.querySelector('.desk-back');
+                        deskBack.innerHTML = '';
+                        deskBack.textContent = '';
+                        deskBack.dataset.student = '';
+                        
+                        // 앞면 표시 초기화 (왕관 표시를 숨기고 원래 번호표로 되돌림)
+                        const deskFront = desk.querySelector('.desk-front');
+                        deskFront.innerHTML = '';
+                        deskFront.textContent = desk.dataset.originalLabel;
+
+                        desk.classList.remove('flipped');
+                    });
+                    
+                    downloadExcelBtn.disabled = true;
+                    clearSeatsBtn.disabled = true;
+                }, { 
+                    confirmText: '모두 지우기', 
+                    confirmColor: 'orange',
+                    extraButton: {
+                        text: '현재 자리만',
+                        classes: 'bg-blue-500 text-white hover:bg-blue-600 focus:ring-blue-500'
+                    }
+                });
+            });
+
+
+            // --- Excel Download ---
+            downloadExcelBtn.addEventListener('click', () => {
+                const data = [];
+                const layoutType = layoutTypeEl.value;
+                const fileName = isTeacherView ? "자리배치결과(교사기준).xlsx" : "자리배치결과(학생기준).xlsx";
+
+                if (layoutType === 'pairs') {
+                    const sections = parseInt(rowsEl.value);
+                    const rowsPerSection = parseInt(colsEl.value);
+                    const header1 = [''];
+                    const header2 = ['행'];
+                    const merges = [];
+                    for (let s = 0; s < sections; s++) {
+                        const sectionLabel = isTeacherView ? `${sections - s}분단` : `${s + 1}분단`;
+                        header1.push(sectionLabel, '');
+                        header2.push('왼쪽', '오른쪽');
+                        merges.push({ s: { r: 0, c: s * 2 + 1 }, e: { r: 0, c: s * 2 + 2 } });
+                    }
+                    data.push(header1, header2);
+
+                    for (let r = 0; r < rowsPerSection; r++) {
+                        const rowLabel = isTeacherView ? `${rowsPerSection - r}행` : `${r + 1}행`;
+                        const rowData = [rowLabel];
+                        for (let s = 0; s < sections; s++) {
+                            const readSection = isTeacherView ? sections - 1 - s : s;
+                            const readRow = isTeacherView ? rowsPerSection - 1 - r : r;
+
+                            const studentLeftIndex = (readSection * rowsPerSection * 2) + (readRow * 2);
+                            const studentRightIndex = studentLeftIndex + 1;
+
+                            const leftIndex = isTeacherView ? studentRightIndex : studentLeftIndex;
+                            const rightIndex = isTeacherView ? studentLeftIndex : studentRightIndex;
+
+                            const leftDesk = seatingChartEl.querySelector(`[data-index='${leftIndex}'] .desk-back`);
+                            const rightDesk = seatingChartEl.querySelector(`[data-index='${rightIndex}'] .desk-back`);
+                            rowData.push(leftDesk ? leftDesk.textContent : '', rightDesk ? rightDesk.textContent : '');
+                        }
+                        data.push(rowData);
+                    }
+                    const worksheet = XLSX.utils.aoa_to_sheet(data);
+                    worksheet['!merges'] = merges;
+                    const workbook = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(workbook, worksheet, "자리배치도");
+                    XLSX.writeFile(workbook, fileName);
+
+                } else if (layoutType === 'groups') {
+                    const numGroups = parseInt(groupCountEl.value);
+                    const groupSize = parseInt(groupSizeEl.value);
+                    
+                    for (let g = 0; g < numGroups; g++) {
+                        // 교사 기준일 경우 모둠 번호 역순 표시 (원할 경우)
+                        const readG = isTeacherView ? numGroups - 1 - g : g;
+                        data.push([`${readG + 1}모둠`]);
+                        
+                        let rowData = [];
+                        for(let i = 0; i < groupSize; i++) {
+                            // 교사 기준일 때 모둠 내 좌석 상하/좌우 반전 처리
+                            const readI = isTeacherView ? groupSize - 1 - i : i;
+                            const deskIndex = readG * groupSize + readI;
+                            
+                            const desk = seatingChartEl.querySelector(`[data-index='${deskIndex}'] .desk-back`);
+                            rowData.push(desk ? desk.textContent : '');
+                            
+                            if (rowData.length === 2) {
+                                data.push([...rowData]);
+                                rowData = [];
+                            }
+                        }
+                        if (rowData.length > 0) {
+                            rowData.push(''); // 짝수 맞추기 위한 빈칸
+                            data.push(rowData);
+                        }
+                        data.push([]); // 모둠 간 간격 띄우기
+                    }
+                    const worksheet = XLSX.utils.aoa_to_sheet(data);
+                    const workbook = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(workbook, worksheet, "자리배치도");
+                    XLSX.writeFile(workbook, fileName);
+
+                } else { // default layout
+                    const rows = parseInt(rowsEl.value);
+                    const cols = parseInt(colsEl.value);
+                    let header = [' '];
+                    for(let c = 0; c < cols; c++) {
+                        const colLabel = isTeacherView ? `${cols - c}열` : `${c+1}열`;
+                        header.push(colLabel);
+                    }
+                    data.push(header);
+
+                    for (let r = 0; r < rows; r++) {
+                        const rowLabel = isTeacherView ? `${rows - r}행` : `${r+1}행`;
+                        let rowData = [rowLabel];
+                        for (let c = 0; c < cols; c++) {
+                            const readRow = isTeacherView ? rows - 1 - r : r;
+                            const readCol = isTeacherView ? cols - 1 - c : c;
+                            
+                            const index = readRow * cols + readCol;
+                            const desk = seatingChartEl.querySelector(`[data-index='${index}'] .desk-back`);
+                            rowData.push(desk ? desk.textContent : '');
+                        }
+                        data.push(rowData);
+                    }
+                    const worksheet = XLSX.utils.aoa_to_sheet(data);
+                    const workbook = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(workbook, worksheet, "자리배치도");
+                    const colWidths = data[0].map((_, i) => ({ wch: data.reduce((w, row) => Math.max(w, row[i] ? String(row[i]).length + 2 : 10), 10) }));
+                    worksheet['!cols'] = colWidths;
+                    XLSX.writeFile(workbook, fileName);
+                }
+            });
+
+            // --- View Toggling ---
+            function applyCurrentView() {
+                const allDesks = seatingChartEl.querySelectorAll('.desk');
+                const groupTitles = seatingChartEl.querySelectorAll('.group-title');
+                
+                if (isTeacherView) {
+                    seatingChartWrapper.classList.add('teacher-view');
+                    seatingChartEl.classList.add('teacher-view');
+                    allDesks.forEach(desk => desk.classList.add('teacher-view'));
+                    groupTitles.forEach(title => title.style.transform = 'rotate(180deg)');
+                    toggleViewBtn.textContent = '학생 기준 보기';
+                } else {
+                    seatingChartWrapper.classList.remove('teacher-view');
+                    seatingChartEl.classList.remove('teacher-view');
+                    allDesks.forEach(desk => desk.classList.remove('teacher-view'));
+                    groupTitles.forEach(title => title.style.transform = 'rotate(0deg)');
+                    toggleViewBtn.textContent = '교사 기준 보기';
+                }
+            }
+
+            toggleViewBtn.addEventListener('click', () => {
+                isTeacherView = !isTeacherView;
+                applyCurrentView();
+            });
+
+            guidebookBtn.addEventListener('click', () => {
+                const guidebookContent = `
+                    <h3 class="text-xl font-bold mb-4 text-blue-700">📖 이용 가이드북</h3>
+                    <div class="text-left space-y-4">
+                        <div>
+                            <p class="font-semibold text-blue-600">⭐ 숨겨진 고급 기능</p>
+                            <p class="text-sm mt-1">
+                                '3. 자리 배치 결과' 제목 옆의 😊 이모지를 클릭해 메뉴를 열고 대상을 선택하세요. 다시 😊 이모지를 눌러 메뉴를 숨긴 후 '자리 바꾸기!' 버튼을 누르면 적용됩니다.
+                            </p>
+                            <ul class="list-disc list-inside space-y-1 pl-2 text-sm mt-2">
+                                <li><strong>사전 자리 지정:</strong> 특정 학생을 원하는 자리에 미리 고정합니다.</li>
+                                <li><strong>모둠장 지정:</strong> (모둠 배치 시) '👑 모둠장 공개 지정' 버튼을 통해 각 모둠의 첫 번째 자리에 배정합니다.</li>
+                                <li><strong>자리 띄우기 (모둠 떨어뜨리기):</strong> 특정 학생들을 2명 이상 다중 선택 후 '조건 추가'를 하면, 해당 학생들끼리는 서로 붙어 앉거나 같은 모둠에 배정되지 않습니다. 여러 그룹의 조건을 추가할 수 있습니다. (예: A,B 조건 추가 / C,D 조건 추가)
+                                    <p class="text-xs text-gray-500 pl-4 mt-1">
+                                        (<strong>Tip:</strong> 안정적인 배치를 위해 너무 많은 조건을 걸지 않는 것을 권장합니다.)
+                                    </p>
+                                </li>
+                            </ul>
+                        </div>
+                        <div>
+                            <p class="font-semibold text-blue-600">🔄️ 교사 기준 보기</p>
+                            <p class="text-sm mt-1">
+                                교탁 아래의 '교사 기준 보기' 버튼을 누르면 교사의 시선에서 자리 배치를 확인하고, 그대로 엑셀 저장도 가능합니다.
+                            </p>
+                        </div>
+                        <div class="border-t pt-3 mt-3">
+                             <p class="font-semibold text-purple-600">📢 공지: 명단 저장 기능 안내</p>
+                             <p class="text-sm mt-1">
+                                '현재 명단 저장' 기능은 보안 정책으로 인해 <strong>코드를 다운 받아 HTML 파일 형식으로 사용하실 때만 정상 작동</strong>합니다. (Gemini 공유 링크 환경에서는 새로고침 시 저장 내용이 사라집니다.)
+                             </p>
+                        </div>
+                    </div>
+                `;
+                showGuidebook(guidebookContent);
+            });
+
+            // --- Initial Load ---
+            populateLoadDropdown();
+            applyLayoutBtn.click();
+        });
+    </script>
+
+</body>
+</html>
